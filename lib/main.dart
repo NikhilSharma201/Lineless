@@ -1,16 +1,15 @@
-// ignore_for_file: unused_local_variable
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:async';
 import 'package:qr_flutter/qr_flutter.dart';
 
-// NOTE: Use 'http://10.0.2.2:5000' for Android Emulator, 'http://localhost:5000' for iOS Simulator/Web
-const String baseUrl = 'http://localhost:5000'; 
+const String baseUrl = 'http://10.165.205.124:5000';
+
 String? globalStudentId;
 String? globalStudentName;
-String? globalUserRole; // 'student' or 'admin'
+String? globalUserRole;
 String? globalAdminEmail;
 
 void main() {
@@ -46,8 +45,7 @@ class LinelessApp extends StatelessWidget {
   }
 }
 
-// --- SCREENS ---
-
+// ==================== LOGIN SELECTION ====================
 class LoginSelectionScreen extends StatelessWidget {
   const LoginSelectionScreen({super.key});
 
@@ -63,7 +61,8 @@ class LoginSelectionScreen extends StatelessWidget {
               const SizedBox(height: 60),
               Center(
                 child: Container(
-                  width: 80, height: 80,
+                  width: 80,
+                  height: 80,
                   decoration: BoxDecoration(
                     color: LinelessTheme.primary.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(24),
@@ -75,10 +74,8 @@ class LoginSelectionScreen extends StatelessWidget {
               const Text('Lineless', textAlign: TextAlign.center, style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: LinelessTheme.textPrimary)),
               const Text('Enterprise Student Portal', textAlign: TextAlign.center, style: TextStyle(fontSize: 14, color: LinelessTheme.textSecondary)),
               const SizedBox(height: 80),
-              
               const Text('Select Login Type', textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: LinelessTheme.textPrimary)),
               const SizedBox(height: 24),
-              
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: LinelessTheme.primary,
@@ -114,6 +111,7 @@ class LoginSelectionScreen extends StatelessWidget {
   }
 }
 
+// ==================== STUDENT LOGIN ====================
 class StudentLoginScreen extends StatefulWidget {
   const StudentLoginScreen({super.key});
 
@@ -122,53 +120,70 @@ class StudentLoginScreen extends StatefulWidget {
 }
 
 class _StudentLoginScreenState extends State<StudentLoginScreen> {
-  final _idController = TextEditingController(text: '');
-  final _pinController = TextEditingController(text: '');
+  final _idController = TextEditingController();
+  final _pinController = TextEditingController();
   bool _isLoading = false;
 
   Future<void> _login() async {
-    setState(() => _isLoading = true);
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'student_id': _idController.text,
-          'pin': _pinController.text,
-        }),
-      );
-      
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        globalStudentId = data['user']['id'];
+  if (_idController.text.isEmpty || _pinController.text.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Please enter Student ID and PIN')),
+    );
+    return;
+  }
+
+  setState(() => _isLoading = true);
+  try {
+    final response = await http.post(
+      Uri.parse('$baseUrl/login'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'student_id': _idController.text,
+        'pin': _pinController.text,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data['success'] == true) {
+        globalStudentId = data['user']['id'].toString();
         globalStudentName = data['user']['name'];
         globalUserRole = 'student';
-        if(mounted) {
+        if (mounted) {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (context) => const MainDashboard()),
           );
         }
       } else {
-        if(mounted) {
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Invalid Credentials. Try: 24107095/123456 or 24107096/654321')),
+            SnackBar(content: Text(data['message'] ?? 'Login failed')),
           );
         }
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error connecting to backend: $e')));
+    } else {
+      final data = jsonDecode(response.body);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(data['message'] ?? 'Invalid credentials')),
+        );
+      }
     }
-    setState(() => _isLoading = false);
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Connection error: $e')),
+      );
+    }
   }
+  setState(() => _isLoading = false);
+}
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: LinelessTheme.background,
-        elevation: 0,
-      ),
+      appBar: AppBar(backgroundColor: LinelessTheme.background, elevation: 0),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
@@ -214,7 +229,35 @@ class _StudentLoginScreenState extends State<StudentLoginScreen> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 onPressed: _isLoading ? null : _login,
-                child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('Authenticate Identity', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                child: _isLoading
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text('Authenticate Identity', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(height: 16),
+              // NEW: Registration Link
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text(
+                    "Don't have an account? ",
+                    style: TextStyle(color: LinelessTheme.textSecondary),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const RegistrationScreen()),
+                      );
+                    },
+                    child: const Text(
+                      'Register',
+                      style: TextStyle(
+                        color: LinelessTheme.primary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -224,6 +267,266 @@ class _StudentLoginScreenState extends State<StudentLoginScreen> {
   }
 }
 
+// ==================== REGISTRATION SCREEN ====================
+class RegistrationScreen extends StatefulWidget {
+  const RegistrationScreen({super.key});
+
+  @override
+  State<RegistrationScreen> createState() => _RegistrationScreenState();
+}
+
+class _RegistrationScreenState extends State<RegistrationScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _studentIdController = TextEditingController();
+  final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _pinController = TextEditingController();
+  final _confirmPinController = TextEditingController();
+  bool _isLoading = false;
+  bool _obscurePin = true;
+  bool _obscureConfirmPin = true;
+
+  @override
+  void dispose() {
+    _studentIdController.dispose();
+    _nameController.dispose();
+    _emailController.dispose();
+    _phoneController.dispose();
+    _pinController.dispose();
+    _confirmPinController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _register() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    if (_pinController.text != _confirmPinController.text) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('PINs do not match'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/register'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'student_id': _studentIdController.text,
+          'name': _nameController.text,
+          'email': _emailController.text,
+          'phone': _phoneController.text.isEmpty ? null : _phoneController.text,
+          'pin': _pinController.text,
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 201 && data['success'] == true) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Registration successful! Please login.'), backgroundColor: Colors.green),
+          );
+          Navigator.pop(context);
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(data['message'] ?? 'Registration failed'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Create Account'),
+        backgroundColor: LinelessTheme.background,
+        elevation: 0,
+      ),
+      backgroundColor: LinelessTheme.background,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text('Student Registration', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: LinelessTheme.textPrimary)),
+                const SizedBox(height: 8),
+                const Text('Create your Lineless account', style: TextStyle(fontSize: 14, color: LinelessTheme.textSecondary)),
+                const SizedBox(height: 32),
+                TextFormField(
+                  controller: _studentIdController,
+                  keyboardType: TextInputType.number,
+                  maxLength: 8,
+                  decoration: const InputDecoration(
+                    labelText: 'University Student ID',
+                    hintText: 'Enter 8-digit ID',
+                    prefixIcon: Icon(Icons.badge_rounded),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
+                    filled: true,
+                    fillColor: Colors.white,
+                    counterText: '',
+                  ),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) return 'Student ID is required';
+                    if (value.length != 8 || !RegExp(r'^\d+$').hasMatch(value)) return 'Student ID must be 8 digits';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _nameController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'Full Name',
+                    hintText: 'Enter your full name',
+                    prefixIcon: Icon(Icons.person_rounded),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
+                    filled: true,
+                    fillColor: Colors.white,
+                  ),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) return 'Name is required';
+                    if (value.length < 3) return 'Name must be at least 3 characters';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: 'Email Address',
+                    hintText: 'your.email@example.com',
+                    prefixIcon: Icon(Icons.email_rounded),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
+                    filled: true,
+                    fillColor: Colors.white,
+                  ),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) return 'Email is required';
+                    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) return 'Enter a valid email';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _phoneController,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Phone Number (Optional)',
+                    hintText: '+91 9876543210',
+                    prefixIcon: Icon(Icons.phone_rounded),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
+                    filled: true,
+                    fillColor: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _pinController,
+                  obscureText: _obscurePin,
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  decoration: InputDecoration(
+                    labelText: 'Create 6-digit PIN',
+                    hintText: 'Enter 6-digit PIN',
+                    prefixIcon: const Icon(Icons.lock_outline_rounded),
+                    suffixIcon: IconButton(
+                      icon: Icon(_obscurePin ? Icons.visibility_off : Icons.visibility),
+                      onPressed: () => setState(() => _obscurePin = !_obscurePin),
+                    ),
+                    border: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
+                    filled: true,
+                    fillColor: Colors.white,
+                    counterText: '',
+                  ),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) return 'PIN is required';
+                    if (value.length != 6 || !RegExp(r'^\d+$').hasMatch(value)) return 'PIN must be 6 digits';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _confirmPinController,
+                  obscureText: _obscureConfirmPin,
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  decoration: InputDecoration(
+                    labelText: 'Confirm PIN',
+                    hintText: 'Re-enter 6-digit PIN',
+                    prefixIcon: const Icon(Icons.lock_rounded),
+                    suffixIcon: IconButton(
+                      icon: Icon(_obscureConfirmPin ? Icons.visibility_off : Icons.visibility),
+                      onPressed: () => setState(() => _obscureConfirmPin = !_obscureConfirmPin),
+                    ),
+                    border: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
+                    filled: true,
+                    fillColor: Colors.white,
+                    counterText: '',
+                  ),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) return 'Please confirm your PIN';
+                    if (value != _pinController.text) return 'PINs do not match';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 32),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: LinelessTheme.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: _isLoading ? null : _register,
+                  child: _isLoading
+                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text('Create Account', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('Already have an account? ', style: TextStyle(color: LinelessTheme.textSecondary)),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Login', style: TextStyle(color: LinelessTheme.primary, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ==================== ADMIN LOGIN ====================
 class AdminLoginScreen extends StatefulWidget {
   const AdminLoginScreen({super.key});
 
@@ -247,27 +550,29 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
           'password': _passwordController.text,
         }),
       );
-      
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        globalAdminEmail = data['user']['email'];
-        globalStudentName = data['user']['name'];
-        globalUserRole = 'admin';
-        if(mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const AdminDashboard()),
-          );
+        if (data['success'] == true) {
+          globalAdminEmail = data['user']['email'];
+          globalStudentName = data['user']['name'];
+          globalUserRole = 'admin';
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const AdminDashboard()),
+            );
+          }
         }
       } else {
-        if(mounted) {
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Invalid admin credentials')),
           );
         }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error connecting to backend: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
     setState(() => _isLoading = false);
   }
@@ -275,10 +580,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: LinelessTheme.background,
-        elevation: 0,
-      ),
+      appBar: AppBar(backgroundColor: LinelessTheme.background, elevation: 0),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
@@ -292,7 +594,6 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                 keyboardType: TextInputType.emailAddress,
                 decoration: const InputDecoration(
                   labelText: 'Admin Email',
-                  hintText: 'email@apsit.edu.in',
                   prefixIcon: Icon(Icons.email_rounded),
                   border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
                   filled: true,
@@ -305,7 +606,6 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                 obscureText: true,
                 decoration: const InputDecoration(
                   labelText: 'Password',
-                  hintText: 'Enter admin password',
                   prefixIcon: Icon(Icons.lock_outline_rounded),
                   border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
                   filled: true,
@@ -331,243 +631,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
   }
 }
 
-// ADMIN DASHBOARD
-class AdminDashboard extends StatefulWidget {
-  const AdminDashboard({super.key});
-  @override
-  State<AdminDashboard> createState() => _AdminDashboardState();
-}
-
-class _AdminDashboardState extends State<AdminDashboard> {
-  List<dynamic> _tokens = [];
-  String _filterStatus = 'ALL'; // ALL, ACTIVE, COMPLETED, CANCELLED
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchAllTokens();
-  }
-
-  Future<void> _fetchAllTokens() async {
-    final res = await http.get(Uri.parse('$baseUrl/admin/tokens'));
-    if (res.statusCode == 200) {
-      setState(() => _tokens = jsonDecode(res.body)['tokens']);
-    }
-  }
-
-  List<dynamic> get _filteredTokens {
-    if (_filterStatus == 'ALL') return _tokens;
-    return _tokens.where((t) => t['status'] == _filterStatus).toList();
-  }
-
-  Future<void> _markComplete(String tokenId) async {
-    final res = await http.post(Uri.parse('$baseUrl/tokens/$tokenId/complete'));
-    if (res.statusCode == 200) {
-      _fetchAllTokens();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Token marked as completed'), backgroundColor: LinelessTheme.success),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final activeCount = _tokens.where((t) => t['status'] == 'ACTIVE').length;
-    final completedCount = _tokens.where((t) => t['status'] == 'COMPLETED').length;
-    
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: LinelessTheme.background,
-        elevation: 0,
-        title: const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Lineless Admin', style: TextStyle(fontWeight: FontWeight.w900, color: LinelessTheme.textPrimary)),
-            Text('Queue Management Portal', style: TextStyle(fontSize: 12, color: LinelessTheme.textSecondary)),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout_rounded),
-            onPressed: () {
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (_) => const LoginSelectionScreen()),
-                (route) => false,
-              );
-            },
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: _fetchAllTokens,
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            // Stats Cards
-            Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE8F5E9),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Active', style: TextStyle(color: LinelessTheme.textSecondary)),
-                        Text('$activeCount', style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: LinelessTheme.success)),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: LinelessTheme.primary.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Completed', style: TextStyle(color: LinelessTheme.textSecondary)),
-                        Text('$completedCount', style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: LinelessTheme.primary)),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            
-            // Filter Chips
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _buildFilterChip('ALL'),
-                  const SizedBox(width: 8),
-                  _buildFilterChip('ACTIVE'),
-                  const SizedBox(width: 8),
-                  _buildFilterChip('COMPLETED'),
-                  const SizedBox(width: 8),
-                  _buildFilterChip('CANCELLED'),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            
-            const Text('All Tokens', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: LinelessTheme.textPrimary)),
-            const SizedBox(height: 16),
-            
-            ..._filteredTokens.map((token) => _buildAdminTokenCard(token)).toList(),
-            if(_filteredTokens.isEmpty) const Center(child: Padding(
-              padding: EdgeInsets.all(40.0),
-              child: Text("No tokens found.", style: TextStyle(color: LinelessTheme.textSecondary)),
-            )),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFilterChip(String status) {
-    bool isSelected = _filterStatus == status;
-    return FilterChip(
-      label: Text(status),
-      selected: isSelected,
-      onSelected: (selected) {
-        setState(() => _filterStatus = status);
-      },
-      selectedColor: LinelessTheme.primary,
-      labelStyle: TextStyle(
-        color: isSelected ? Colors.white : LinelessTheme.textPrimary,
-        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-      ),
-    );
-  }
-
-  Widget _buildAdminTokenCard(dynamic token) {
-    bool isActive = token['status'] == 'ACTIVE';
-    bool isCompleted = token['status'] == 'COMPLETED';
-    bool isCancelled = token['status'] == 'CANCELLED';
-    
-    Color statusColor = isActive ? const Color(0xFFE8F5E9) : 
-                       isCompleted ? const Color(0xFFE3F2FD) :
-                       const Color(0xFFFFF3E0);
-    Color statusTextColor = isActive ? Colors.green[800]! : 
-                           isCompleted ? Colors.blue[800]! :
-                           Colors.orange[800]!;
-    
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: LinelessTheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: LinelessTheme.background, borderRadius: BorderRadius.circular(12)),
-                child: Text(token['id'].split('-')[1], style: const TextStyle(fontWeight: FontWeight.bold, color: LinelessTheme.primary, fontSize: 12)),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(token['service_name'], style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
-                    Text('${token['student_name']} • ${token['student_id']}', style: const TextStyle(fontSize: 12, color: LinelessTheme.textSecondary)),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: statusColor,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(token['status'], style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: statusTextColor)),
-              )
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(token['display_time'] ?? token['created_at'], style: const TextStyle(fontSize: 12, color: LinelessTheme.textSecondary)),
-              if(isActive) Text('Position: ${token['queue_position']}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: LinelessTheme.primary)),
-            ],
-          ),
-          if(isActive) const SizedBox(height: 12),
-          if(isActive) ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: LinelessTheme.success,
-              foregroundColor: Colors.white,
-              minimumSize: const Size(double.infinity, 40),
-            ),
-            icon: const Icon(Icons.check_circle_outline, size: 18),
-            label: const Text('Mark as Complete'),
-            onPressed: () => _markComplete(token['id']),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// STUDENT DASHBOARD
+// ==================== MAIN DASHBOARD (STUDENT) ====================
 class MainDashboard extends StatefulWidget {
   const MainDashboard({super.key});
   @override
@@ -584,9 +648,13 @@ class _MainDashboardState extends State<MainDashboard> {
   }
 
   Future<void> _fetchTokens() async {
-    final res = await http.get(Uri.parse('$baseUrl/tokens?student_id=$globalStudentId'));
-    if (res.statusCode == 200) {
-      setState(() => _tokens = jsonDecode(res.body)['tokens']);
+    try {
+      final res = await http.get(Uri.parse('$baseUrl/tokens?student_id=$globalStudentId'));
+      if (res.statusCode == 200) {
+        setState(() => _tokens = jsonDecode(res.body)['tokens']);
+      }
+    } catch (e) {
+      print('Error fetching tokens: $e');
     }
   }
 
@@ -606,7 +674,7 @@ class _MainDashboardState extends State<MainDashboard> {
         actions: [
           CircleAvatar(
             backgroundColor: LinelessTheme.primary,
-            child: Text(globalStudentName?.substring(0,2).toUpperCase() ?? 'JD', style: const TextStyle(color: Colors.white)),
+            child: Text(globalStudentName?.substring(0, 2).toUpperCase() ?? 'ST', style: const TextStyle(color: Colors.white)),
           ),
           const SizedBox(width: 20)
         ],
@@ -640,14 +708,14 @@ class _MainDashboardState extends State<MainDashboard> {
             const Text('Your Recent Tokens', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: LinelessTheme.textPrimary)),
             const SizedBox(height: 16),
             ..._tokens.map((token) => _buildTokenCard(token)).toList(),
-            if(_tokens.isEmpty) const Text("No tokens generated yet.", style: TextStyle(color: LinelessTheme.textSecondary)),
+            if (_tokens.isEmpty) const Text("No tokens generated yet.", style: TextStyle(color: LinelessTheme.textSecondary)),
           ],
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
           await Navigator.push(context, MaterialPageRoute(builder: (_) => const ServiceSelectionScreen()));
-          _fetchTokens(); // Refresh after returning
+          _fetchTokens();
         },
         backgroundColor: LinelessTheme.primary,
         icon: const Icon(Icons.add_rounded, color: Colors.white),
@@ -659,20 +727,17 @@ class _MainDashboardState extends State<MainDashboard> {
   Widget _buildTokenCard(dynamic token) {
     bool isActive = token['status'] == 'ACTIVE';
     bool isCompleted = token['status'] == 'COMPLETED';
-    bool isCancelled = token['status'] == 'CANCELLED';
-    
-    Color statusColor = isActive ? const Color(0xFFE8F5E9) : 
-                       isCompleted ? const Color(0xFFE3F2FD) :
-                       const Color(0xFFFFF3E0);
-    Color statusTextColor = isActive ? Colors.green[800]! : 
-                           isCompleted ? Colors.blue[800]! :
-                           Colors.orange[800]!;
-    
+
+    Color statusColor = isActive ? const Color(0xFFE8F5E9) : isCompleted ? const Color(0xFFE3F2FD) : const Color(0xFFFFF3E0);
+    Color statusTextColor = isActive ? Colors.green.shade800 : isCompleted ? Colors.blue.shade800 : Colors.orange.shade800;
+
     return InkWell(
-      onTap: isActive ? () async {
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => TokenDetailScreen(token: token)));
-        _fetchTokens();
-      } : null,
+      onTap: isActive
+          ? () async {
+              await Navigator.push(context, MaterialPageRoute(builder: (_) => TokenDetailScreen(token: token)));
+              _fetchTokens();
+            }
+          : null,
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
@@ -686,7 +751,7 @@ class _MainDashboardState extends State<MainDashboard> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(color: LinelessTheme.background, borderRadius: BorderRadius.circular(12)),
-              child: Text(token['id'].split('-')[1].substring(0,3), style: const TextStyle(fontWeight: FontWeight.bold, color: LinelessTheme.primary)),
+              child: Text(token['id'].split('-')[1].substring(0, 3), style: const TextStyle(fontWeight: FontWeight.bold, color: LinelessTheme.primary)),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -700,10 +765,7 @@ class _MainDashboardState extends State<MainDashboard> {
             ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: statusColor,
-                borderRadius: BorderRadius.circular(20),
-              ),
+              decoration: BoxDecoration(color: statusColor, borderRadius: BorderRadius.circular(20)),
               child: Text(token['status'], style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: statusTextColor)),
             )
           ],
@@ -713,6 +775,7 @@ class _MainDashboardState extends State<MainDashboard> {
   }
 }
 
+// ==================== SERVICE SELECTION ====================
 class ServiceSelectionScreen extends StatefulWidget {
   const ServiceSelectionScreen({super.key});
   @override
@@ -729,18 +792,26 @@ class _ServiceSelectionScreenState extends State<ServiceSelectionScreen> {
   }
 
   Future<void> _fetchServices() async {
-    final res = await http.get(Uri.parse('$baseUrl/services'));
-    if (res.statusCode == 200) {
-      setState(() => _services = jsonDecode(res.body)['services']);
+    try {
+      final res = await http.get(Uri.parse('$baseUrl/services'));
+      if (res.statusCode == 200) {
+        setState(() => _services = jsonDecode(res.body)['services']);
+      }
+    } catch (e) {
+      print('Error fetching services: $e');
     }
   }
 
   IconData _getIcon(String name) {
     switch (name) {
-      case 'school': return Icons.school_rounded;
-      case 'train': return Icons.train_rounded;
-      case 'payments': return Icons.payments_rounded;
-      default: return Icons.description_rounded;
+      case 'school':
+        return Icons.school_rounded;
+      case 'train':
+        return Icons.train_rounded;
+      case 'payments':
+        return Icons.payments_rounded;
+      default:
+        return Icons.description_rounded;
     }
   }
 
@@ -754,7 +825,7 @@ class _ServiceSelectionScreenState extends State<ServiceSelectionScreen> {
         itemBuilder: (context, index) {
           final s = _services[index];
           int queueCount = s['queue_count'] ?? 0;
-          
+
           return Card(
             margin: const EdgeInsets.only(bottom: 16),
             color: LinelessTheme.surface,
@@ -791,6 +862,7 @@ class _ServiceSelectionScreenState extends State<ServiceSelectionScreen> {
   }
 }
 
+// ==================== TOKEN GENERATION (WITH POPUPS) ====================
 class TokenGenerationScreen extends StatefulWidget {
   final String serviceName;
   const TokenGenerationScreen({super.key, required this.serviceName});
@@ -804,20 +876,85 @@ class _TokenGenerationScreenState extends State<TokenGenerationScreen> {
 
   Future<void> _generateToken() async {
     setState(() => _isLoading = true);
-    final res = await http.post(
-      Uri.parse('$baseUrl/tokens'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'student_id': globalStudentId,
-        'service_name': widget.serviceName,
-      }),
-    );
-    setState(() => _isLoading = false);
-    if (res.statusCode == 200) {
-      if(mounted) {
-        Navigator.pop(context); // Go back to services
-        Navigator.pop(context); // Go back to dashboard
+    try {
+      final res = await http.post(
+        Uri.parse('$baseUrl/tokens'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'student_id': globalStudentId,
+          'service_name': widget.serviceName,
+        }),
+      );
+
+      final data = jsonDecode(res.body);
+
+      if (res.statusCode == 201 && data['success'] == true) {
+        // SUCCESS POPUP
+        if (mounted) {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.check_circle, color: LinelessTheme.success, size: 28),
+                  SizedBox(width: 12),
+                  Text('Token Generated!'),
+                ],
+              ),
+              content: Text(data['message'] ?? 'Your token has been generated successfully!'),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context); // Close dialog
+                    Navigator.pop(context); // Go back to services
+                    Navigator.pop(context); // Go back to dashboard
+                  },
+                  child: const Text('OK', style: TextStyle(color: LinelessTheme.primary, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          );
+        }
+      } else {
+        // ERROR POPUP
+        String errorMessage = data['message'] ?? 'Failed to generate token';
+        String? errorType = data['error_type'];
+
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: Row(
+                children: [
+                  Icon(
+                    errorType == 'limit_reached' ? Icons.block : Icons.warning,
+                    color: LinelessTheme.danger,
+                    size: 28,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(errorType == 'limit_reached' ? 'Limit Reached!' : 'Cannot Generate Token'),
+                ],
+              ),
+              content: Text(errorMessage),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('OK', style: TextStyle(color: LinelessTheme.primary, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          );
+        }
       }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Connection error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
@@ -862,6 +999,7 @@ class _TokenGenerationScreenState extends State<TokenGenerationScreen> {
   }
 }
 
+// ==================== TOKEN DETAIL ====================
 class TokenDetailScreen extends StatefulWidget {
   final dynamic token;
   const TokenDetailScreen({super.key, required this.token});
@@ -872,7 +1010,6 @@ class TokenDetailScreen extends StatefulWidget {
 
 class _TokenDetailScreenState extends State<TokenDetailScreen> {
   Future<void> _cancelToken(BuildContext context) async {
-    // Show confirmation dialog
     bool? confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -893,7 +1030,7 @@ class _TokenDetailScreenState extends State<TokenDetailScreen> {
 
     if (confirm == true) {
       final res = await http.post(Uri.parse('$baseUrl/tokens/${widget.token['id']}/cancel'));
-      if(res.statusCode == 200 && context.mounted) {
+      if (res.statusCode == 200 && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Token cancelled successfully'), backgroundColor: LinelessTheme.danger),
         );
@@ -928,14 +1065,14 @@ class _TokenDetailScreenState extends State<TokenDetailScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                         decoration: BoxDecoration(color: const Color(0xFFE8F5E9), borderRadius: BorderRadius.circular(20)),
-                        child: Text(widget.token['status'], style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green[800])),
+                        child: Text(widget.token['status'], style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green.shade800)),
                       )
                     ],
                   ),
                   const Divider(height: 32),
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Service Category'), Text(widget.token['service_name'], style: const TextStyle(fontWeight: FontWeight.bold))]),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Service'), Text(widget.token['service_name'], style: const TextStyle(fontWeight: FontWeight.bold))]),
                   const SizedBox(height: 12),
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Student Name'), Text(globalStudentName ?? '', style: const TextStyle(fontWeight: FontWeight.bold))]),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Name'), Text(globalStudentName ?? '', style: const TextStyle(fontWeight: FontWeight.bold))]),
                   const SizedBox(height: 12),
                   Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Student ID'), Text(globalStudentId ?? '', style: const TextStyle(fontWeight: FontWeight.bold))]),
                   const SizedBox(height: 32),
@@ -962,7 +1099,6 @@ class _TokenDetailScreenState extends State<TokenDetailScreen> {
                   LinearProgressIndicator(value: 0.75, backgroundColor: LinelessTheme.background, color: LinelessTheme.primary, minHeight: 8, borderRadius: BorderRadius.circular(4)),
                   const SizedBox(height: 16),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -990,14 +1126,480 @@ class _TokenDetailScreenState extends State<TokenDetailScreen> {
       ),
     );
   }
-  
+
   String _getPositionSuffix(int position) {
     if (position % 100 >= 11 && position % 100 <= 13) return 'th';
     switch (position % 10) {
-      case 1: return 'st';
-      case 2: return 'nd';
-      case 3: return 'rd';
-      default: return 'th';
+      case 1:
+        return 'st';
+      case 2:
+        return 'nd';
+      case 3:
+        return 'rd';
+      default:
+        return 'th';
     }
+  }
+}
+
+// ==================== ADMIN DASHBOARD (CATEGORY VIEW) ====================
+class AdminDashboard extends StatefulWidget {
+  const AdminDashboard({super.key});
+  @override
+  State<AdminDashboard> createState() => _AdminDashboardState();
+}
+
+class _AdminDashboardState extends State<AdminDashboard> {
+  List<dynamic> _serviceGroups = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchTokensByService();
+  }
+
+  Future<void> _fetchTokensByService() async {
+    setState(() => _isLoading = true);
+    try {
+      final res = await http.get(Uri.parse('$baseUrl/admin/tokens/by-service'));
+      if (res.statusCode == 200) {
+        setState(() {
+          _serviceGroups = jsonDecode(res.body)['services'];
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error: $e');
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _completeToken(String tokenId) async {
+    try {
+      final res = await http.post(Uri.parse('$baseUrl/tokens/$tokenId/complete'));
+      if (res.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Token marked as completed'), backgroundColor: LinelessTheme.success),
+        );
+        _fetchTokensByService();
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
+  }
+
+  Future<void> _removeToken(String tokenId) async {
+    try {
+      final res = await http.post(Uri.parse('$baseUrl/tokens/$tokenId/remove'));
+      if (res.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Token removed'), backgroundColor: LinelessTheme.danger),
+        );
+        _fetchTokensByService();
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
+  }
+
+  void _showNotificationDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => const AdminNotificationDialog(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: LinelessTheme.background,
+        elevation: 0,
+        title: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Lineless Admin', style: TextStyle(fontWeight: FontWeight.w900, color: LinelessTheme.textPrimary)),
+            Text('Queue Management Portal', style: TextStyle(fontSize: 12, color: LinelessTheme.textSecondary)),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.notifications_active_rounded, color: LinelessTheme.primary),
+            tooltip: 'Send Notification',
+            onPressed: _showNotificationDialog,
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout_rounded),
+            onPressed: () {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const LoginSelectionScreen()),
+                (route) => false,
+              );
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _fetchTokensByService,
+              child: ListView(
+                padding: const EdgeInsets.all(20),
+                children: [
+                  ..._serviceGroups.map((serviceGroup) => _buildServiceGroup(serviceGroup)).toList(),
+                  if (_serviceGroups.isEmpty) const Center(child: Padding(padding: EdgeInsets.all(40.0), child: Text("No tokens found.", style: TextStyle(color: LinelessTheme.textSecondary)))),
+                ],
+              ),
+            ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showNotificationDialog,
+        backgroundColor: LinelessTheme.primary,
+        icon: const Icon(Icons.send_rounded, color: Colors.white),
+        label: const Text('Send Notification', style: TextStyle(color: Colors.white)),
+      ),
+    );
+  }
+
+  Widget _buildServiceGroup(dynamic serviceGroup) {
+    String serviceName = serviceGroup['service_name'];
+    List tokens = serviceGroup['tokens'];
+    int activeCount = serviceGroup['active_tokens'];
+
+    if (tokens.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 24),
+      decoration: BoxDecoration(
+        color: LinelessTheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: LinelessTheme.primary.withOpacity(0.1),
+              borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(serviceName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: LinelessTheme.primary)),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(color: LinelessTheme.primary, borderRadius: BorderRadius.circular(20)),
+                  child: Text('$activeCount Active', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                ),
+              ],
+            ),
+          ),
+          ...tokens.map((token) => _buildAdminTokenCard(token)).toList(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAdminTokenCard(dynamic token) {
+    bool isActive = token['status'] == 'ACTIVE';
+    bool isCompleted = token['status'] == 'COMPLETED';
+
+    Color statusColor = isActive ? const Color(0xFFE8F5E9) : isCompleted ? const Color(0xFFE3F2FD) : const Color(0xFFFFF3E0);
+    Color statusTextColor = isActive ? Colors.green.shade800 : isCompleted ? Colors.blue.shade800 : Colors.orange.shade800;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: LinelessTheme.background, borderRadius: BorderRadius.circular(12)),
+                child: Text(token['id'].split('-')[1], style: const TextStyle(fontWeight: FontWeight.bold, color: LinelessTheme.primary, fontSize: 12)),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(token['student_name'], style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                    Text('ID: ${token['student_id']}', style: const TextStyle(fontSize: 12, color: LinelessTheme.textSecondary)),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(color: statusColor, borderRadius: BorderRadius.circular(20)),
+                child: Text(token['status'], style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: statusTextColor)),
+              )
+            ],
+          ),
+          if (isActive) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: LinelessTheme.success,
+                      foregroundColor: Colors.white,
+                    ),
+                    icon: const Icon(Icons.check_circle_outline, size: 18),
+                    label: const Text('Complete'),
+                    onPressed: () => _completeToken(token['id']),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: LinelessTheme.danger),
+                      foregroundColor: LinelessTheme.danger,
+                    ),
+                    icon: const Icon(Icons.close, size: 18),
+                    label: const Text('Remove'),
+                    onPressed: () => _removeToken(token['id']),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ==================== ADMIN NOTIFICATION DIALOG ====================
+class AdminNotificationDialog extends StatefulWidget {
+  const AdminNotificationDialog({super.key});
+
+  @override
+  State<AdminNotificationDialog> createState() => _AdminNotificationDialogState();
+}
+
+class _AdminNotificationDialogState extends State<AdminNotificationDialog> {
+  final _messageController = TextEditingController();
+  String _selectedTarget = 'all';
+  String? _selectedService;
+  bool _isSending = false;
+  List<dynamic> _services = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchServices();
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchServices() async {
+    try {
+      final res = await http.get(Uri.parse('$baseUrl/services'));
+      if (res.statusCode == 200) {
+        setState(() => _services = jsonDecode(res.body)['services']);
+      }
+    } catch (e) {
+      print('Error fetching services: $e');
+    }
+  }
+
+  Future<void> _sendNotification() async {
+    if (_messageController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a message'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    if (_selectedTarget == 'service' && _selectedService == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a service'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    setState(() => _isSending = true);
+
+    try {
+      final body = {
+        'message': _messageController.text.trim(),
+        'target': _selectedTarget,
+      };
+
+      if (_selectedTarget == 'service' && _selectedService != null) {
+        body['service_name'] = _selectedService!;
+      }
+
+      final res = await http.post(
+        Uri.parse('$baseUrl/admin/send-notification'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      );
+
+      final data = jsonDecode(res.body);
+
+      if (res.statusCode == 200 && data['success'] == true) {
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Notification sent to ${data['sent']} users'),
+              backgroundColor: LinelessTheme.success,
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(data['message'] ?? 'Failed to send notification'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      setState(() => _isSending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.notifications_active, color: LinelessTheme.primary),
+          SizedBox(width: 12),
+          Text('Send Notification'),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Send To:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+            const SizedBox(height: 12),
+            RadioListTile<String>(
+              title: const Text('All Students'),
+              value: 'all',
+              groupValue: _selectedTarget,
+              onChanged: (value) => setState(() {
+                _selectedTarget = value!;
+                _selectedService = null;
+              }),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+            RadioListTile<String>(
+              title: const Text('Specific Service Queue'),
+              value: 'service',
+              groupValue: _selectedTarget,
+              onChanged: (value) => setState(() => _selectedTarget = value!),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+            if (_selectedTarget == 'service') ...[
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                decoration: const InputDecoration(
+                  labelText: 'Select Service',
+                  border: OutlineInputBorder(),
+                  filled: true,
+                  fillColor: LinelessTheme.background,
+                ),
+                value: _selectedService,
+                items: _services.map((service) {
+                  return DropdownMenuItem<String>(
+                    value: service['name'],
+                    child: Text(service['name']),
+                  );
+                }).toList(),
+                onChanged: (value) => setState(() => _selectedService = value),
+              ),
+            ],
+            const SizedBox(height: 20),
+            const Text('Message:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _messageController,
+              maxLines: 4,
+              maxLength: 200,
+              decoration: const InputDecoration(
+                hintText: 'e.g., "Scholarship services will be unavailable today from 2-4 PM"',
+                border: OutlineInputBorder(),
+                filled: true,
+                fillColor: LinelessTheme.background,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 20, color: Colors.blue.shade700),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'This will send a push notification to ${_selectedTarget == 'all' ? 'all students' : 'students in the selected service queue'}',
+                      style: TextStyle(fontSize: 12, color: Colors.blue.shade700),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isSending ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: LinelessTheme.primary,
+            foregroundColor: Colors.white,
+          ),
+          icon: _isSending
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                )
+              : const Icon(Icons.send, size: 20),
+          label: Text(_isSending ? 'Sending...' : 'Send'),
+          onPressed: _isSending ? null : _sendNotification,
+        ),
+      ],
+    );
   }
 }

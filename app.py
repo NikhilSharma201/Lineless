@@ -1,9 +1,9 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from datetime import datetime
-from config import config
-from models import db, User, Admin, Service, Token, Notification
-from notifications import init_notification_service, get_notification_service
+from backend.config import config
+from backend.models import db, User, Admin, Service, Token, Notification
+from backend.notifications import init_notification_service, get_notification_service
 import os
 
 # Initialize Flask app

@@ -4,6 +4,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'notification_service.dart';   // <-- ADDED
+import 'notification_poller.dart';    // <-- ADDED
 
 const String baseUrl = 'http://10.165.205.124:5000';
 
@@ -11,8 +13,12 @@ String? globalStudentId;
 String? globalStudentName;
 String? globalUserRole;
 String? globalAdminEmail;
+NotificationPoller? activePoller;    // <-- ADDED
 
-void main() {
+// <-- ADDED: main() is now async and initialises local notifications before runApp
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await LocalNotificationService.init();
   runApp(const LinelessApp());
 }
 
@@ -125,60 +131,69 @@ class _StudentLoginScreenState extends State<StudentLoginScreen> {
   bool _isLoading = false;
 
   Future<void> _login() async {
-  if (_idController.text.isEmpty || _pinController.text.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Please enter Student ID and PIN')),
-    );
-    return;
-  }
+    if (_idController.text.isEmpty || _pinController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter Student ID and PIN')),
+      );
+      return;
+    }
 
-  setState(() => _isLoading = true);
-  try {
-    final response = await http.post(
-      Uri.parse('$baseUrl/login'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'student_id': _idController.text,
-        'pin': _pinController.text,
-      }),
-    );
+    setState(() => _isLoading = true);
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'student_id': _idController.text,
+          'pin': _pinController.text,
+        }),
+      );
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      if (data['success'] == true) {
-        globalStudentId = data['user']['id'].toString();
-        globalStudentName = data['user']['name'];
-        globalUserRole = 'student';
-        if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const MainDashboard()),
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true) {
+          globalStudentId = data['user']['id'].toString();
+          globalStudentName = data['user']['name'];
+          globalUserRole = 'student';
+
+          // <-- ADDED: start polling for notifications after successful login
+          activePoller?.stop();
+          activePoller = NotificationPoller(
+            baseUrl: baseUrl,
+            userId: int.parse(data['user']['id'].toString()),
           );
+          activePoller!.start();
+
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const MainDashboard()),
+            );
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(data['message'] ?? 'Login failed')),
+            );
+          }
         }
       } else {
+        final data = jsonDecode(response.body);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(data['message'] ?? 'Login failed')),
+            SnackBar(content: Text(data['message'] ?? 'Invalid credentials')),
           );
         }
       }
-    } else {
-      final data = jsonDecode(response.body);
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(data['message'] ?? 'Invalid credentials')),
+          SnackBar(content: Text('Connection error: $e')),
         );
       }
     }
-  } catch (e) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Connection error: $e')),
-      );
-    }
+    setState(() => _isLoading = false);
   }
-  setState(() => _isLoading = false);
-}
 
   @override
   Widget build(BuildContext context) {
@@ -234,7 +249,6 @@ class _StudentLoginScreenState extends State<StudentLoginScreen> {
                     : const Text('Authenticate Identity', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ),
               const SizedBox(height: 16),
-              // NEW: Registration Link
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -889,7 +903,6 @@ class _TokenGenerationScreenState extends State<TokenGenerationScreen> {
       final data = jsonDecode(res.body);
 
       if (res.statusCode == 201 && data['success'] == true) {
-        // SUCCESS POPUP
         if (mounted) {
           showDialog(
             context: context,
@@ -906,9 +919,9 @@ class _TokenGenerationScreenState extends State<TokenGenerationScreen> {
               actions: [
                 TextButton(
                   onPressed: () {
-                    Navigator.pop(context); // Close dialog
-                    Navigator.pop(context); // Go back to services
-                    Navigator.pop(context); // Go back to dashboard
+                    Navigator.pop(context);
+                    Navigator.pop(context);
+                    Navigator.pop(context);
                   },
                   child: const Text('OK', style: TextStyle(color: LinelessTheme.primary, fontWeight: FontWeight.bold)),
                 ),
@@ -917,7 +930,6 @@ class _TokenGenerationScreenState extends State<TokenGenerationScreen> {
           );
         }
       } else {
-        // ERROR POPUP
         String errorMessage = data['message'] ?? 'Failed to generate token';
         String? errorType = data['error_type'];
 
@@ -1236,6 +1248,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
           IconButton(
             icon: const Icon(Icons.logout_rounded),
             onPressed: () {
+              // <-- ADDED: stop the poller when admin logs out
+              activePoller?.stop();
+              activePoller = null;
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(builder: (_) => const LoginSelectionScreen()),

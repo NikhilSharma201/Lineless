@@ -628,6 +628,11 @@ def get_notifications(user_id):
         "notifications": [notif.to_dict() for notif in all_notifications]
     })
 
+@app.route('/notifications/<int:user_id>/unread-count', methods=['GET'])
+def get_unread_count(user_id):
+    """Lightweight endpoint — Flutter polls this to check for new notifications"""
+    count = Notification.query.filter_by(user_id=user_id, read=False).count()
+    return jsonify({"unread_count": count})
 
 @app.route('/notifications/<int:notification_id>/read', methods=['POST'])
 def mark_notification_read(notification_id):

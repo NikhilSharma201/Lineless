@@ -553,47 +553,34 @@ def send_admin_notification():
     """Send custom notification from admin"""
     data = request.json
     message = data.get('message')
-    target = data.get('target', 'all')  # 'all', 'service', or specific user_id
+    target = data.get('target', 'all')
     service_name = data.get('service_name')
-    user_id = data.get('user_id')
-    
+
     if not message:
         return jsonify({"success": False, "message": "Message is required"}), 400
-    
-    notification_service = get_notification_service()
-    device_tokens = []
+
     user_ids = []
-    
-    # Determine recipients
+
+    # Determine recipients — no longer filtering by device_token
     if target == 'all':
-        # Send to all users with device tokens
-        users = User.query.filter(User.device_token.isnot(None)).all()
-        device_tokens = [user.device_token for user in users]
+        users = User.query.all()
         user_ids = [user.id for user in users]
-        
+
     elif target == 'service' and service_name:
-        # Send to all users with active tokens for this service
         service = Service.query.filter_by(name=service_name).first()
         if service:
-            tokens = Token.query.filter_by(service_id=service.id, status='ACTIVE').all()
-            unique_users = {token.user for token in tokens if token.user.device_token}
-            device_tokens = [user.device_token for user in unique_users]
-            user_ids = [user.id for user in unique_users]
-    
-    elif user_id:
-        # Send to specific user
-        user = User.query.get(user_id)
-        if user and user.device_token:
-            device_tokens = [user.device_token]
-            user_ids = [user.id]
-    
-    if not device_tokens:
+            tokens = Token.query.filter_by(
+                service_id=service.id,
+                status='ACTIVE'
+            ).all()
+            # Get unique user ids from active tokens
+            user_ids = list({token.user_id for token in tokens})
+
+    if not user_ids:
         return jsonify({"success": False, "message": "No recipients found"}), 400
-    
-    # Send notifications
-    result = notification_service.send_admin_message(device_tokens, message)
-    
-    # Log notifications in database
+
+    # Save notification to DB for each recipient
+    # Flutter app will pick these up via polling
     for uid in user_ids:
         notification = Notification(
             user_id=uid,
@@ -602,14 +589,14 @@ def send_admin_notification():
             type="admin_message"
         )
         db.session.add(notification)
-    
+
     db.session.commit()
-    
+
     return jsonify({
         "success": True,
         "message": "Notifications sent",
-        "sent": result['success'],
-        "failed": result['failure']
+        "sent": len(user_ids),
+        "failure": 0
     })
 
 

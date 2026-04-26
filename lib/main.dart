@@ -7,7 +7,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'notification_service.dart';   // <-- ADDED
 import 'notification_poller.dart';    // <-- ADDED
 
-const String baseUrl = 'http://10.165.205.124:5000';
+const String baseUrl = 'https://lineless-backend-production.up.railway.app';
 
 String? globalStudentId;
 String? globalStudentName;

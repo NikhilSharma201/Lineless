@@ -52,3 +52,7 @@ config = {
     'default': DevelopmentConfig
 }
  
+ # Fix Railway's postgres:// URL to postgresql://
+database_url = os.environ.get('DATABASE_URL', '')
+if database_url.startswith('postgres://'):
+    os.environ['DATABASE_URL'] = database_url.replace('postgres://', 'postgresql://', 1)

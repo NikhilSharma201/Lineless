@@ -1,9 +1,9 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from datetime import datetime
-from backend.config import config
-from backend.models import db, User, Admin, Service, Token, Notification
-from backend.notifications import init_notification_service, get_notification_service
+from config import config
+from models import db, User, Admin, Service, Token, Notification
+from notifications import init_notification_service, get_notification_service
 import os
 
 # Initialize Flask app
@@ -26,17 +26,13 @@ token_counter = 88290
 def sync_token_counter():
     """Initializes the global token_counter based on the highest ID in the database"""
     global token_counter
-    # Pulls 'LL' from your config.py
     prefix = app.config.get('TOKEN_PREFIX', 'LL')
     try:
-        # Get the latest token issued
         latest_token = Token.query.order_by(Token.id.desc()).first()
         if latest_token and latest_token.token_id:
-            # Splits "LL-88291" into ["LL", "88291"]
             parts = latest_token.token_id.split('-')
             if len(parts) > 1 and parts[1].isdigit():
                 db_value = int(parts[1])
-                # Set counter to the higher value (DB or Default)
                 token_counter = max(token_counter, db_value)
                 print(f"[*] Token counter synced from DB to: {token_counter}")
     except Exception as e:
@@ -51,26 +47,20 @@ def update_queue_positions(service_id):
             status='ACTIVE'
         ).order_by(Token.created_at).all()
 
-        notification_service = get_notification_service()
-
         for idx, token in enumerate(active_tokens):
             old_position = token.queue_position
             new_position = idx + 1
             token.queue_position = new_position
 
-            # Send notification only if service is available and position changed
-            try:
-                if (notification_service and
-                        old_position != new_position and
-                        token.user and
-                        token.user.device_token):
-                    notification_service.send_queue_update(
-                        token.user.device_token,
-                        token.service.name,
-                        new_position
-                    )
-            except Exception as notif_err:
-                print(f"[WARN] Notification failed for token {token.token_id}: {notif_err}")
+            # Save queue update notification to DB if position changed
+            if old_position != new_position:
+                notification = Notification(
+                    user_id=token.user_id,
+                    title="Queue Update 🔔",
+                    message=f"Your position in {token.service.name} queue is now #{new_position}. Estimated wait: {new_position * 3}-{new_position * 3 + 3} mins.",
+                    type="queue_update"
+                )
+                db.session.add(notification)
 
         db.session.commit()
     except Exception as e:
@@ -80,19 +70,16 @@ def update_queue_positions(service_id):
 
 # ==================== INITIALIZATION ====================
 
-# Tables are created at startup (see __main__ block below)
-# Initialize notification service and sync counter on startup
 with app.app_context():
-    db.create_all() # Keep your existing lines
-    init_notification_service(app.config.get('FIREBASE_CREDENTIALS_PATH')) # Keep your existing lines
-    sync_token_counter() # <--- ADD THIS LINE HERE
+    db.create_all()
+    init_notification_service(app.config.get('FIREBASE_CREDENTIALS_PATH'))
+    sync_token_counter()
 
 @app.cli.command('init-db')
 def init_db():
     """Initialize database with default data"""
     db.create_all()
     
-    # Create default services
     services_data = [
         {"name": "Scholarships", "description": "Apply for merit & need-based grants", "icon": "school"},
         {"name": "Train Concessions", "description": "Monthly railway pass verification", "icon": "train"},
@@ -105,7 +92,6 @@ def init_db():
             service = Service(**service_data)
             db.session.add(service)
     
-    # Create default admin
     if not Admin.query.filter_by(email='admin@apsit.edu.in').first():
         admin = Admin(
             email='admin@apsit.edu.in',
@@ -114,7 +100,6 @@ def init_db():
         admin.set_password('admin123')
         db.session.add(admin)
     
-    # Create demo student users (optional - for testing)
     demo_users = [
         {"student_id": "24107095", "name": "Nikhil Sharma", "email": "nikhil@student.edu", "pin": "123456"},
         {"student_id": "24107096", "name": "Priya Patel", "email": "priya@student.edu", "pin": "654321"},
@@ -141,29 +126,23 @@ def register():
     """Register a new student user"""
     data = request.json
     
-    # Validate required fields
     required_fields = ['student_id', 'name', 'email', 'pin']
     for field in required_fields:
         if not data.get(field):
             return jsonify({"success": False, "message": f"Missing field: {field}"}), 400
     
-    # Check if student_id already exists
     if User.query.filter_by(student_id=data['student_id']).first():
         return jsonify({"success": False, "message": "Student ID already registered"}), 400
     
-    # Check if email already exists
     if User.query.filter_by(email=data['email']).first():
         return jsonify({"success": False, "message": "Email already registered"}), 400
     
-    # Validate student ID format (8 digits)
     if len(data['student_id']) != 8 or not data['student_id'].isdigit():
         return jsonify({"success": False, "message": "Student ID must be 8 digits"}), 400
     
-    # Validate PIN (6 digits)
     if len(data['pin']) != 6 or not data['pin'].isdigit():
         return jsonify({"success": False, "message": "PIN must be 6 digits"}), 400
     
-    # Create new user
     user = User(
         student_id=data['student_id'],
         name=data['name'],
@@ -196,16 +175,15 @@ def login():
     user = User.query.filter_by(student_id=student_id).first()
     
     if user and user.check_pin(pin):
-        # Update device token if provided
         if data.get('device_token'):
             user.device_token = data['device_token']
             db.session.commit()
         
-        # Return student_id as 'id' for Flutter compatibility
         return jsonify({
             "success": True,
             "user": {
-                "id": user.student_id,  # Return student_id, not database id
+                "id": user.student_id,   # kept for Flutter compatibility
+                "db_id": user.id,        # numeric DB id for notification polling
                 "name": user.name,
                 "role": "student"
             }
@@ -261,11 +239,9 @@ def update_profile(user_id):
     
     data = request.json
     
-    # Update allowed fields
     if 'name' in data:
         user.name = data['name']
     if 'email' in data:
-        # Check if email is already taken by another user
         existing = User.query.filter_by(email=data['email']).first()
         if existing and existing.id != user_id:
             return jsonify({"success": False, "message": "Email already in use"}), 400
@@ -299,15 +275,12 @@ def change_pin(user_id):
     if not old_pin or not new_pin:
         return jsonify({"success": False, "message": "Missing PIN data"}), 400
     
-    # Verify old PIN
     if not user.check_pin(old_pin):
         return jsonify({"success": False, "message": "Incorrect current PIN"}), 401
     
-    # Validate new PIN
     if len(new_pin) != 6 or not new_pin.isdigit():
         return jsonify({"success": False, "message": "New PIN must be 6 digits"}), 400
     
-    # Set new PIN
     user.set_pin(new_pin)
     db.session.commit()
     
@@ -398,7 +371,6 @@ def remove_token(token_id):
     
     db.session.commit()
     
-    # Update queue positions for this service
     update_queue_positions(token.service_id)
     
     return jsonify({"success": True, "message": "Token removed successfully"})
@@ -416,17 +388,14 @@ def create_token():
     if not student_id or not service_name:
         return jsonify({"success": False, "message": "Missing required fields"}), 400
     
-    # Get user
     user = User.query.filter_by(student_id=student_id).first()
     if not user:
         return jsonify({"success": False, "message": "User not found"}), 404
     
-    # Get service
     service = Service.query.filter_by(name=service_name, is_active=True).first()
     if not service:
         return jsonify({"success": False, "message": "Service not found"}), 404
     
-    # Check if user already has a token for this service
     existing_token = Token.query.filter_by(
         user_id=user.id,
         service_id=service.id,
@@ -440,7 +409,6 @@ def create_token():
             "error_type": "duplicate_service"
         }), 400
     
-    # Check overall token limit (max 3 active tokens total)
     if not user.can_create_token():
         active_count = user.get_active_tokens_count()
         return jsonify({
@@ -451,15 +419,12 @@ def create_token():
             "error_type": "limit_reached"
         }), 400
     
-    # Calculate queue position
     queue_position = service.get_queue_count() + 1
     
-    # Generate unique token ID
     token_counter += 1
-    prefix = app.config.get('TOKEN_PREFIX', 'LL') # <--- Add this line
-    token_id = f"{prefix}-{token_counter}"        # <--- Update this line
+    prefix = app.config.get('TOKEN_PREFIX', 'LL')
+    token_id = f"{prefix}-{token_counter}"
     
-    # Create token
     token = Token(
         token_id=token_id,
         user_id=user.id,
@@ -471,7 +436,6 @@ def create_token():
     db.session.add(token)
     db.session.commit()
     
-    # Update queue positions
     update_queue_positions(service.id)
     
     return jsonify({
@@ -497,29 +461,17 @@ def complete_token(token_id):
     
     db.session.commit()
 
-    # Send notification to user (guarded - Firebase may not be configured)
-    try:
-        notification_service = get_notification_service()
-        if notification_service and token.user and token.user.device_token:
-            notification_service.send_token_completed(
-                token.user.device_token,
-                token.service.name
-            )
-    except Exception as notif_err:
-        print(f"[WARN] Completion notification failed: {notif_err}")
-    
-    # Update queue positions for this service
-    update_queue_positions(token.service_id)
-    
-    # Log notification
+    # Log completion notification for the user
     notification = Notification(
         user_id=token.user_id,
-        title="Token Completed",
-        message=f"Your token for {token.service.name} has been completed!",
+        title="Token Completed ✅",
+        message=f"Your token for {token.service.name} has been completed! Please proceed to the counter.",
         type="token_completed"
     )
     db.session.add(notification)
     db.session.commit()
+    
+    update_queue_positions(token.service_id)
     
     return jsonify({"success": True})
 
@@ -540,7 +492,6 @@ def cancel_token(token_id):
     
     db.session.commit()
     
-    # Update queue positions for this service
     update_queue_positions(token.service_id)
     
     return jsonify({"success": True})
@@ -561,7 +512,7 @@ def send_admin_notification():
 
     user_ids = []
 
-    # Determine recipients — no longer filtering by device_token
+    # Determine recipients — no device_token filter needed, DB-based polling
     if target == 'all':
         users = User.query.all()
         user_ids = [user.id for user in users]
@@ -573,18 +524,17 @@ def send_admin_notification():
                 service_id=service.id,
                 status='ACTIVE'
             ).all()
-            # Get unique user ids from active tokens
             user_ids = list({token.user_id for token in tokens})
 
     if not user_ids:
         return jsonify({"success": False, "message": "No recipients found"}), 400
 
     # Save notification to DB for each recipient
-    # Flutter app will pick these up via polling
+    # Flutter app picks these up via polling
     for uid in user_ids:
         notification = Notification(
             user_id=uid,
-            title="Admin Notification",
+            title="Admin Notification 📢",
             message=message,
             type="admin_message"
         )
@@ -605,7 +555,6 @@ def get_notifications(user_id):
     """Get notifications for a user"""
     notifications = Notification.query.filter_by(user_id=user_id).order_by(Notification.sent_at.desc()).all()
     
-    # Also get broadcast notifications (user_id = None)
     broadcast_notifications = Notification.query.filter_by(user_id=None).order_by(Notification.sent_at.desc()).limit(10).all()
     
     all_notifications = notifications + broadcast_notifications
@@ -615,11 +564,6 @@ def get_notifications(user_id):
         "notifications": [notif.to_dict() for notif in all_notifications]
     })
 
-@app.route('/notifications/<int:user_id>/unread-count', methods=['GET'])
-def get_unread_count(user_id):
-    """Lightweight endpoint — Flutter polls this to check for new notifications"""
-    count = Notification.query.filter_by(user_id=user_id, read=False).count()
-    return jsonify({"unread_count": count})
 
 @app.route('/notifications/<int:notification_id>/read', methods=['POST'])
 def mark_notification_read(notification_id):

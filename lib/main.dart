@@ -4,18 +4,18 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'notification_service.dart';   // <-- ADDED
-import 'notification_poller.dart';    // <-- ADDED
+import 'notification_service.dart';
+import 'notification_poller.dart';
 
-const String baseUrl = 'https://lineless-backend-production.up.railway.app';
+const String baseUrl = 'https://lineless-backend-production.up.railway.app'; 
 
 String? globalStudentId;
 String? globalStudentName;
 String? globalUserRole;
 String? globalAdminEmail;
-NotificationPoller? activePoller;    // <-- ADDED
+int? globalUserDbId;              // <-- ADDED: numeric DB id for notification polling
+NotificationPoller? activePoller;
 
-// <-- ADDED: main() is now async and initialises local notifications before runApp
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await LocalNotificationService.init();
@@ -153,14 +153,15 @@ class _StudentLoginScreenState extends State<StudentLoginScreen> {
         final data = jsonDecode(response.body);
         if (data['success'] == true) {
           globalStudentId = data['user']['id'].toString();
+          globalUserDbId = data['user']['db_id'];   // <-- ADDED: store numeric DB id
           globalStudentName = data['user']['name'];
           globalUserRole = 'student';
 
-          // <-- ADDED: start polling for notifications after successful login
+          // <-- FIXED: use globalUserDbId for polling instead of parsing student_id
           activePoller?.stop();
           activePoller = NotificationPoller(
             baseUrl: baseUrl,
-            userId: int.parse(data['user']['id'].toString()),
+            userId: globalUserDbId!,
           );
           activePoller!.start();
 
@@ -1142,14 +1143,10 @@ class _TokenDetailScreenState extends State<TokenDetailScreen> {
   String _getPositionSuffix(int position) {
     if (position % 100 >= 11 && position % 100 <= 13) return 'th';
     switch (position % 10) {
-      case 1:
-        return 'st';
-      case 2:
-        return 'nd';
-      case 3:
-        return 'rd';
-      default:
-        return 'th';
+      case 1: return 'st';
+      case 2: return 'nd';
+      case 3: return 'rd';
+      default: return 'th';
     }
   }
 }
@@ -1197,9 +1194,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         _fetchTokensByService();
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
@@ -1213,9 +1208,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         _fetchTokensByService();
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
@@ -1248,7 +1241,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
           IconButton(
             icon: const Icon(Icons.logout_rounded),
             onPressed: () {
-              // <-- ADDED: stop the poller when admin logs out
               activePoller?.stop();
               activePoller = null;
               Navigator.pushAndRemoveUntil(
@@ -1332,9 +1324,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
-      ),
+      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade200))),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1368,10 +1358,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: LinelessTheme.success,
-                      foregroundColor: Colors.white,
-                    ),
+                    style: ElevatedButton.styleFrom(backgroundColor: LinelessTheme.success, foregroundColor: Colors.white),
                     icon: const Icon(Icons.check_circle_outline, size: 18),
                     label: const Text('Complete'),
                     onPressed: () => _completeToken(token['id']),
@@ -1380,10 +1367,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: LinelessTheme.danger),
-                      foregroundColor: LinelessTheme.danger,
-                    ),
+                    style: OutlinedButton.styleFrom(side: const BorderSide(color: LinelessTheme.danger), foregroundColor: LinelessTheme.danger),
                     icon: const Icon(Icons.close, size: 18),
                     label: const Text('Remove'),
                     onPressed: () => _removeToken(token['id']),
@@ -1484,10 +1468,7 @@ class _AdminNotificationDialogState extends State<AdminNotificationDialog> {
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(data['message'] ?? 'Failed to send notification'),
-              backgroundColor: Colors.red,
-            ),
+            SnackBar(content: Text(data['message'] ?? 'Failed to send notification'), backgroundColor: Colors.red),
           );
         }
       }
@@ -1574,10 +1555,7 @@ class _AdminNotificationDialogState extends State<AdminNotificationDialog> {
             const SizedBox(height: 8),
             Container(
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(8),
-              ),
+              decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
               child: Row(
                 children: [
                   Icon(Icons.info_outline, size: 20, color: Colors.blue.shade700),
@@ -1600,16 +1578,9 @@ class _AdminNotificationDialogState extends State<AdminNotificationDialog> {
           child: const Text('Cancel'),
         ),
         ElevatedButton.icon(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: LinelessTheme.primary,
-            foregroundColor: Colors.white,
-          ),
+          style: ElevatedButton.styleFrom(backgroundColor: LinelessTheme.primary, foregroundColor: Colors.white),
           icon: _isSending
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                )
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
               : const Icon(Icons.send, size: 20),
           label: Text(_isSending ? 'Sending...' : 'Send'),
           onPressed: _isSending ? null : _sendNotification,

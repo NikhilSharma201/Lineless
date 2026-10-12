@@ -1,9 +1,9 @@
 services:
   - type: web
     name: lineless-backend
-    runtime: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --workers 2 --bind 0.0.0.0:$PORT
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     envVars:
       - key: FLASK_ENV
         value: production
